@@ -1,0 +1,139 @@
+import os
+import json
+import requests
+import finnhub
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="api_key",
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+)
+
+
+def get_weather(city:str):
+    url=f"https://wttr.in/{city}?format=%C+%t"
+    response=requests.get(url)
+    print(f"🔨 Tool Called: get_weather", city)
+   
+
+    if response.status_code==200:
+        return f"The weather in {city} is {response.text}"
+
+    return "Something went wrong"
+def get_ticker_symbol(symbol: str):
+    api_key = "api_key"
+    url = f"https://finnhub.io/api/v1/search?q={symbol}&token={api_key}"
+    
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        if data['count'] > 0:
+            return data['result'][0]['symbol']
+        else:
+            return None
+    return None
+
+
+def web_stock(symbol:str):
+    code=get_ticker_symbol(symbol)
+
+    api_key = "api_key"  # Replace with your actual API key
+    url = f"https://finnhub.io/api/v1/quote?symbol={code}&token={api_key}"
+    result=requests.get(url)
+    if result.status_code==200:
+        data = result.json()
+        price = data.get("c")
+        highprice = data.get("h")
+        lowprice = data.get("l")
+        openprice = data.get("o")
+        previousclose = data.get("pc")
+        if price :
+            return f"""the price of {code} :{symbol} is {price}.
+            high price:{highprice}low price:{lowprice} openprice:{openprice} previousclose:{previousclose}
+                                                    """
+        else :
+            return f"unable to retrive"
+    return f"something went wrong"
+
+
+available_Tool={
+    "get_weather":{
+        "fn":get_weather,
+        "description":"Takes a city name as an input and returns the current weather of that city."
+    },
+    
+    "web_stock":{
+        "fn":web_stock,
+        "description":"it take name of stock as input to retrive stock data  and return output"
+    }
+
+
+
+}
+prompt_system="""
+You are a AI assistant who expert in every thing providing current weather,web stocks data, creating file in system.
+you work in step plan,action,observe,output.
+elect the relevant tool from the available tool. and based on the tool selection you perform an action to call the tool
+Wait for the observation and based on the observation from the tool call resolve the user query.
+
+Rules:
+    - Follow the Output JSON Format.
+    - Always perform one step at a time and wait for next intput 
+    - Carefully analyse the user query
+
+Output JSON Format:
+    {{
+        "step": "string",
+        "content": "string",
+        "function": "The name of function if the step is action",
+        "input": "The input parameter for the function",
+    }}
+Available Tools:
+    - get_weather:Takes a city name as an input and returns the current weather of that city.
+    - web_stock:it take name of stock as input to retrive stock data  and return output.
+Example:
+    User Query:  What is the weather of new york?
+    Output: {{ "step": "plan", "content": "The user is interested in weather data of new york" }}
+    Output: {{ "step": "plan", "content": "From the available tools I should call get_weather" }}
+    Output: {{ "step": "action", "function": "get_weather", "input": "new york" }}
+    Output: {{ "step": "observe", "output": "12 Degree Celcius" }}
+    Output: {{ "step": "output", "content": "The weather for new york seems to be 12 degrees." }}
+ 
+
+
+
+
+"""
+
+messages=[
+     {"role": "system", "content":prompt_system },
+
+]
+while True:
+    query=input("Enter Stock Name:")
+    messages.append({"role": "user", "content":query })
+
+
+    while True:
+            response = client.chat.completions.create(
+            model="gemini-2.0-flash",
+            response_format={"type": "json_object"},
+            messages=messages
+            )
+            parsed  =    json.loads(response.choices[0].message.content)
+            messages.append({"role":"assistant" ,"content":json.dumps(parsed)})
+
+
+            if parsed.get("step")=="plan":
+                print(f"📝:{parsed.get("content")}")
+                continue
+            if parsed.get("step")== "action":
+                tool_name=parsed.get("function")
+                tool_input=parsed.get("input")
+                if available_Tool.get(tool_name,False) != False:
+                 out= available_Tool[tool_name].get("fn")(tool_input)
+                 messages.append({"role":"assistant" ,"content":json.dumps(out)})
+                 continue
+            if parsed.get("step") == "output":
+                print(f"🤖:{parsed.get("content")}")
+                break
