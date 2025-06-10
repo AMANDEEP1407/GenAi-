@@ -4,7 +4,7 @@ import os
 api_key = os.getenv("GEMINI_API_KEY")
 
 client = OpenAI(
-    api_key="AIzaSyBIdymwT-gxmEjQuUVE83MoG83SSwkOYzI",
+    api_key="api",
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
 )
 system_prompt="""
@@ -18,7 +18,7 @@ system_prompt="""
  input:"let have a drive  we are going to any indian city "
  output:"lets go to chandigarh  "
  input:"do you like any songs"
- output:"ohh yes i like sidhu moose wala"
+ output:"ohh yes i like "
 """
 
 messages=[
