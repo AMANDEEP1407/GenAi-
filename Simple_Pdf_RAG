@@ -1,0 +1,134 @@
+
+import json
+from pathlib import Path
+
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings
+from langchain_qdrant import QdrantVectorStore
+from openai import OpenAI
+
+client = OpenAI(
+
+
+    api_key="",
+    
+)
+
+
+
+pdf_path =Path(__file__).parent / "envt.pdf"
+loader=PyPDFLoader(file_path=pdf_path)
+docs=loader.load()
+
+
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+split_docs= text_splitter.split_documents(documents=docs)
+
+
+embedder=OpenAIEmbeddings(
+    model="text-embedding-3-large",
+    api_key="api"
+)
+vector_store=QdrantVectorStore.from_documents(
+    documents=[],
+    url="http://localhost:6333",
+    collection_name="learninglangchain",
+    embedding=embedder,
+)
+vector_store.add_documents(split_docs)
+def retrival_data(query : str):
+    
+    retriver=QdrantVectorStore.from_existing_collection(
+        url="http://localhost:6333",
+        collection_name="learninglangchain",
+        embedding=embedder
+    )
+    final = retriver.similarity_search(query)
+    return [doc.page_content for doc in final]
+available_tools={
+     "retrival_data":{
+         "fn":retrival_data,
+         "description":"this is is for retrivig relevant chunks from vector database according to query of user."
+         
+     }
+
+     
+
+ }
+system_prompt="""
+you are  a Ai agent who expert in retriving data from all file like pdf etc.
+You are an helpful AI Assistant who is specialized in resolving user query.
+You work on start, plan, action, observe mode.
+For the given user query and available tools, plan the step by step execution, based on the planning,
+select the relevant tool from the available tool. and based on the tool selection you perform an action to call the tool
+Wait for the observation and based on the observation from the tool call resolve the user query
+
+ Rules:
+    - Follow the Output JSON Format.
+    - Always perform one step at a time and wait for next intput 
+    - Carefully analyse the user query
+
+    Output JSON Format:
+    {{
+        "step": "string",
+        "content": "string",
+        "function": "The name of function if the step is action",
+        "input": "The input parameter for the function",
+    }}
+
+available tools:
+- pdf_to_qdrant:this tool is for it convert text into chunks and embedd them and then store in vector db.
+- retrival_data: this is is for retrivig relevant chunks from vector database according to query of user.
+
+Example:
+input:what is datatype
+output:{{"step":"plan" "content":"user want to know about datatype" }}
+output:{{"step":"plain" "content":"from the available tools call the retrival_data function" }}
+output:{{"step":"action" "function":retrival_data "input":"datatype" }}
+Output:{{ "step": "observe", "output": "result from function" }}
+Output:{{ "step": "output", "content": " a data type is a classification of data that tells the compiler or interpreter how the programmer intends to use the data...... more." }}
+"""
+
+messages = [
+    { 'role': 'system', 'content': system_prompt },
+]
+
+while True:
+    user_query = input('> ')
+
+    messages.append({ 'role': 'user', 'content': user_query })
+
+    while True:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            response_format={"type": "json_object"},
+            messages=messages,
+        )
+
+        parsed_output = json.loads(response.choices[0].message.content)
+        messages.append({ 'role': 'assistant', 'content': json.dumps(parsed_output) })
+
+        if parsed_output['step'] == 'plan':
+            print(f"🧠: {parsed_output.get('content')}")
+            continue
+        
+        if parsed_output['step'] == 'action':
+            tool_name = parsed_output.get('function')
+            tool_input = parsed_output.get('input')
+
+            if available_tools.get(tool_name, False) != False:
+                output = available_tools[tool_name].get('fn')(tool_input)
+                messages.append({ 'role': 'assistant', 'content': json.dumps({ 'step': 'observe', 'output': output }) })
+                continue
+
+        if parsed_output['step'] == 'output':
+            print(f"🤖: {parsed_output.get('content')}")
+            break
+
+       
+    
+    
+
+    
+    
